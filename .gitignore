@@ -3,6 +3,12 @@ __pycache__/
 *.pyc
 .env
 .claude
-template/
+.ci-out/
+
+# outputs
 result/
+
+# sample data for CI should be tracked, but large/all-data folders should not
+template/step1_2024-2025_all_data/
+template/step2_2024-2025_all_data/
 .ci-out/

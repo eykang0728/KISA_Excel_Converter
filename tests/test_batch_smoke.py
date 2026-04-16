@@ -55,4 +55,3 @@ def test_step2_process_batch_smoke(tmp_path: Path) -> None:
     )
     assert failures == []
     assert success_count > 0
-

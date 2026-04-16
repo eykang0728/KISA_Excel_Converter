@@ -1,0 +1,31 @@
+ [project]
+ name = "excel-converter"
+ version = "0.1.0"
+ description = "Excel to JSON/JSONL converter scripts (step1/step2) with optional summary_doc."
+ readme = "README.md"
+ requires-python = ">=3.9"
+ dependencies = [
+   "pandas>=2.0",
+   "openpyxl>=3.1",
+   "xlrd>=2.0",
+ ]
+ 
+ [project.scripts]
+ step1-batch = "step1_2024_2025_batch_runner:main"
+ step2-batch = "step2_2024_2025_batch_runner:main"
+ 
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+py-modules = [
+  "step1_2024_2025_batch_runner",
+  "step1_common_operating_spec_excel_to_json",
+  "step2_2024_2025_batch_runner",
+  "step2_common_audit_log_excel_to_json",
+  "summary_doc",
+]
+
+ [tool.uv]
+package = true

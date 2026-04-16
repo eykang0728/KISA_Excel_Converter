@@ -59,6 +59,29 @@ uv run step1-batch -h
 uv run step2-batch -h
 ```
 
+## 프로젝트 구조
+
+핵심 코드는 `src/` 아래에 있습니다.
+
+```text
+src/
+  batch_runner/
+    step1_2024_2025_batch_runner.py
+    step2_2024_2025_batch_runner.py
+  step1_common_operating_spec_excel_to_json.py
+  step2_common_audit_log_excel_to_json.py
+  summary_doc.py
+```
+
+## 스크립트 직접 실행 (선택)
+
+엔트리포인트(`uv run step1-batch`) 대신 파일을 직접 실행할 수도 있습니다.
+
+```bash
+uv run python src/batch_runner/step1_2024_2025_batch_runner.py -h
+uv run python src/batch_runner/step2_2024_2025_batch_runner.py -h
+```
+
 ## 입력/출력 폴더 (기본값)
 
 ### Step1
@@ -174,3 +197,5 @@ Step2는 `input_root` 자체 이름 또는 그 하위 첫 폴더명에서 아래
 rm -rf .venv
 uv sync
 ```
+
+- **`-h` 도움말에 “기본값 경로 설명”이 실제 폴더와 다르게 보일 때**: 도움말 텍스트는 `argparse`의 `help=` 문자열이라 코드/폴더 이동과 무관하게 예전 문구가 남아있을 수 있습니다. 실제 기본 경로는 위 “입력/출력 폴더 (기본값)”을 기준으로 보시면 됩니다.

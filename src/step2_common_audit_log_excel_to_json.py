@@ -24,9 +24,14 @@ from pathlib import Path
 
 import pandas as pd
 
+if __package__ in {None, ""}:
+    # Allow running as a script: `python src/step2_common_audit_log_excel_to_json.py ...`
+    # Ensure repo-root `src/` is importable (e.g., for `summary_doc`).
+    repo_root = Path(__file__).resolve().parents[1]
+    sys.path.insert(0, str(repo_root))
+
 DEFAULT_INPUT_PATH = "excel_test_file/template/NISC/NISC01.심사일지/((주)마이리얼트립) ISMS-P 심사일지(오광수).xlsx"
 DEFAULT_OUTPUT_DIR = "excel_test_file/(step2)result_normalized_v2/NISC/NISC01.심사일지"
-
 
 
 SHEET_NAME = "심사일지"
@@ -122,9 +127,7 @@ _INTERVIEW_ROW_LABELS = ("인터뷰 부서 및 대상", "인터뷰 내용", "확
 
 
 def _label_matches(value: object, target: str) -> bool:
-    return bool(_normalize_label(_cell_str(value))) and _normalize_label(
-        target
-    ) in _normalize_label(_cell_str(value))
+    return bool(_normalize_label(_cell_str(value))) and _normalize_label(target) in _normalize_label(_cell_str(value))
 
 
 def _row_has_any_label(df: pd.DataFrame, row_idx: int, labels: tuple[str, ...]) -> bool:
@@ -136,9 +139,7 @@ def _row_has_any_label(df: pd.DataFrame, row_idx: int, labels: tuple[str, ...]) 
 
 
 def _row_looks_like_criteria_header(df: pd.DataFrame, row_idx: int) -> bool:
-    values = [
-        _normalize_label(_cell_str(df.iloc[row_idx, j])) for j in range(df.shape[1])
-    ]
+    values = [_normalize_label(_cell_str(df.iloc[row_idx, j])) for j in range(df.shape[1])]
     return ("분야" in values) and ("항목" in values)
 
 
@@ -152,9 +153,7 @@ def _locate_interview_blocks(
     - '구분' 오른쪽부터 서비스명 컬럼들을 수집한다.
     """
     nrows, ncols = df.shape
-    layouts: list[
-        tuple[int, int, dict[str, list[int]], dict[str, int], list[tuple[int, str]]]
-    ] = []
+    layouts: list[tuple[int, int, dict[str, list[int]], dict[str, int], list[tuple[int, str]]]] = []
 
     for i in range(nrows):
         for j in range(ncols):
@@ -187,8 +186,7 @@ def _locate_interview_blocks(
                 if not service_name:
                     continue
                 if any(
-                    _label_matches(service_name, label)
-                    for label in (_INTERVIEW_BLOCK_ANCHOR, *_INTERVIEW_ROW_LABELS)
+                    _label_matches(service_name, label) for label in (_INTERVIEW_BLOCK_ANCHOR, *_INTERVIEW_ROW_LABELS)
                 ):
                     continue
                 service_columns.append((jj, service_name))
@@ -208,9 +206,7 @@ def parse_interview_sections(df: pd.DataFrame) -> list[dict]:
 
     interviews: list[dict] = []
 
-    def _collect_multiline(
-        field_label: str, start_row: int, label_col: int, col_idx: int
-    ) -> str:
+    def _collect_multiline(field_label: str, start_row: int, label_col: int, col_idx: int) -> str:
         parts: list[str] = []
         r = start_row
         # 현재 셀 포함
@@ -222,14 +218,10 @@ def parse_interview_sections(df: pd.DataFrame) -> list[dict]:
         for r in range(start_row + 1, min(start_row + 80, df.shape[0])):
             if _row_looks_like_criteria_header(df, r):
                 break
-            if _row_has_any_label(
-                df, r, (_INTERVIEW_BLOCK_ANCHOR, *_INTERVIEW_ROW_LABELS)
-            ):
+            if _row_has_any_label(df, r, (_INTERVIEW_BLOCK_ANCHOR, *_INTERVIEW_ROW_LABELS)):
                 break
 
-            label_cell = (
-                _clean_text(df.iloc[r, label_col]) if label_col < df.shape[1] else ""
-            )
+            label_cell = _clean_text(df.iloc[r, label_col]) if label_col < df.shape[1] else ""
             if label_cell:
                 break
 
@@ -256,9 +248,7 @@ def parse_interview_sections(df: pd.DataFrame) -> list[dict]:
             system_row = label_to_rows["확인문서 또는 시스템"][0]
             system_col = label_to_col["확인문서 또는 시스템"]
 
-            dept = _collect_multiline(
-                "인터뷰 부서 및 대상", dept_row, dept_col, col_idx
-            )
+            dept = _collect_multiline("인터뷰 부서 및 대상", dept_row, dept_col, col_idx)
             # '인터뷰 내용'은 라벨 행 자체가 여러 번 반복될 수 있어 모두 합친다.
             contents = []
             for r in content_rows:
@@ -266,9 +256,7 @@ def parse_interview_sections(df: pd.DataFrame) -> list[dict]:
                 if piece:
                     contents.append(piece)
             content = _clean_text("\n".join(contents))
-            system = _collect_multiline(
-                "확인문서 또는 시스템", system_row, system_col, col_idx
-            )
+            system = _collect_multiline("확인문서 또는 시스템", system_row, system_col, col_idx)
 
             if not any([service_name_clean, dept, content, system]):
                 continue
@@ -291,9 +279,7 @@ def parse_interview_sections(df: pd.DataFrame) -> list[dict]:
     return interviews
 
 
-def _find_rightmost_flag_col(
-    header_cells: list[str], col_item_name: int | None, ncols: int
-) -> int | None:
+def _find_rightmost_flag_col(header_cells: list[str], col_item_name: int | None, ncols: int) -> int | None:
     """헤더에 '결함여부'가 보이는 가장 오른쪽 열 (항목명 오른쪽만)."""
     if col_item_name is None:
         return None
@@ -414,11 +400,7 @@ def _combined_header_cells(df: pd.DataFrame, header_row: int) -> list[str]:
     """
     ncols = df.shape[1]
     current = [_cell_str(df.iloc[header_row, j]) for j in range(ncols)]
-    previous = (
-        [_cell_str(df.iloc[header_row - 1, j]) for j in range(ncols)]
-        if header_row > 0
-        else [""] * ncols
-    )
+    previous = [_cell_str(df.iloc[header_row - 1, j]) for j in range(ncols)] if header_row > 0 else [""] * ncols
 
     merged: list[str] = []
     for prev, cur in zip(previous, current):
@@ -476,11 +458,7 @@ def parse_criteria_flexible(
         score += 2 if col_domain_name is not None else 0
         score += 2 if col_item_name is not None else 0
         score += 1 if col_flag is not None else 0
-        if (
-            col_item_name is not None
-            and col_flag is not None
-            and col_flag > col_item_name
-        ):
+        if col_item_name is not None and col_flag is not None and col_flag > col_item_name:
             score += min(8, col_flag - col_item_name - 1)
 
         # 첫 데이터 행 추정:
@@ -492,26 +470,18 @@ def parse_criteria_flexible(
         for i in range(header_row + 1, min(header_row + 60, nrows)):
             item_code = _cell_str(df.iloc[i, col_item]) if col_item < ncols else ""
             item_name = (
-                _cell_str(df.iloc[i, col_item_name])
-                if col_item_name is not None and col_item_name < ncols
-                else ""
+                _cell_str(df.iloc[i, col_item_name]) if col_item_name is not None and col_item_name < ncols else ""
             )
-            if item_code.rstrip(
-                "."
-            ) == ANCHOR_ITEM_CODE and ANCHOR_ITEM_NAME in _clean_text(item_name):
+            if item_code.rstrip(".") == ANCHOR_ITEM_CODE and ANCHOR_ITEM_NAME in _clean_text(item_name):
                 anchor_row = i
                 first_data_row = i
                 break
 
         if first_data_row is None:
             for i in range(header_row + 1, min(header_row + 40, nrows)):
-                domain_code = (
-                    _cell_str(df.iloc[i, col_domain]) if col_domain < ncols else ""
-                )
+                domain_code = _cell_str(df.iloc[i, col_domain]) if col_domain < ncols else ""
                 item_code = _cell_str(df.iloc[i, col_item]) if col_item < ncols else ""
-                if _DOMAIN_CODE_RE.match(
-                    domain_code.rstrip(".")
-                ) and _ITEM_CODE_RE.match(item_code.rstrip(".")):
+                if _DOMAIN_CODE_RE.match(domain_code.rstrip(".")) and _ITEM_CODE_RE.match(item_code.rstrip(".")):
                     first_data_row = i
                     break
 
@@ -520,11 +490,7 @@ def parse_criteria_flexible(
 
         score += 10 if anchor_row is not None else 5
 
-        if (
-            anchor_row is not None
-            and col_item_name is not None
-            and col_item_name < ncols
-        ):
+        if anchor_row is not None and col_item_name is not None and col_item_name < ncols:
             anchor_item_name = _clean_text(df.iloc[anchor_row, col_item_name])
             if ANCHOR_ITEM_NAME not in anchor_item_name:
                 score -= 5
@@ -618,20 +584,11 @@ def parse_criteria_flexible(
         결함항목 = [_clean_text(_get(i, j)) for j, _svc in defect_col_specs]
         any_defect_cell = any(_clean_text(t) for t in 결함항목)
 
-        if not (
-            domain
-            or item
-            or domain_name
-            or item_name
-            or any_defect_cell
-            or flag
-        ):
+        if not (domain or item or domain_name or item_name or any_defect_cell or flag):
             continue
 
         # 헤더 값이 그대로 들어오는 행(예: "분야", "항목")은 제외
-        if _normalize_label(domain) == _normalize_label("분야") and _normalize_label(
-            item
-        ) == _normalize_label("항목"):
+        if _normalize_label(domain) == _normalize_label("분야") and _normalize_label(item) == _normalize_label("항목"):
             continue
 
         records.append(
@@ -660,9 +617,7 @@ def parse_criteria(
     인증기준별 결함 테이블 파싱 (앵커 기반)
     return: (criteria_list, defect_summary)
     """
-    return parse_criteria_flexible(
-        df, defect_columns_right_of_item_name=defect_columns_right_of_item_name
-    )
+    return parse_criteria_flexible(df, defect_columns_right_of_item_name=defect_columns_right_of_item_name)
 
 
 def _is_meaningful_criteria_row(row: dict) -> bool:
@@ -692,9 +647,7 @@ def _is_meaningful_criteria_row(row: dict) -> bool:
     return False
 
 
-def build_retrieval_rows(
-    metadata: dict, criteria_rows: list[dict], defect_summary: dict
-) -> list[dict]:
+def build_retrieval_rows(metadata: dict, criteria_rows: list[dict], defect_summary: dict) -> list[dict]:
     rows: list[dict] = []
 
     doc_title = _clean_text(metadata.get("document_title", ""))
@@ -780,9 +733,7 @@ def build_retrieval_rows(
             {
                 "kind": "criteria",
                 "section": SECTION_TITLE_CRITERIA,
-                "row_index": int(source_row_index)
-                if source_row_index is not None
-                else None,
+                "row_index": int(source_row_index) if source_row_index is not None else None,
                 "분야_code": field_code,
                 "분야_name": field_name,
                 "항목_code": item_code,
@@ -798,12 +749,8 @@ def build_retrieval_rows(
         summary_text = "\n".join(
             [
                 _join_nonempty([doc_title, SECTION_TITLE_DEFECT_SUMMARY]),
-                f"값: {', '.join(defect_summary.get('values', []))}"
-                if defect_summary.get("values")
-                else "",
-                f"원본: {' | '.join(defect_summary.get('raw_cells', []))}"
-                if defect_summary.get("raw_cells")
-                else "",
+                f"값: {', '.join(defect_summary.get('values', []))}" if defect_summary.get("values") else "",
+                f"원본: {' | '.join(defect_summary.get('raw_cells', []))}" if defect_summary.get("raw_cells") else "",
             ]
         ).strip()
 
@@ -833,18 +780,14 @@ def excel_to_json(path: str | Path) -> dict:
 
     df_main = pd.read_excel(xls, sheet_name=SHEET_NAME, header=None)
     df_defect = (
-        pd.read_excel(xls, sheet_name=SHEET_NAME_DEFECT, header=None)
-        if SHEET_NAME_DEFECT in xls.sheet_names
-        else None
+        pd.read_excel(xls, sheet_name=SHEET_NAME_DEFECT, header=None) if SHEET_NAME_DEFECT in xls.sheet_names else None
     )
 
     metadata = parse_metadata(df_main)
 
     # criteria(인증기준별 결함사항)는 기본적으로 '심사일지'에서 파싱하되,
     # 시트가 분리된 경우('예비결함')에는 그 시트에서 파싱 결과를 사용/보강한다.
-    criteria_main, defect_summary_main = parse_criteria(
-        df_main, defect_columns_right_of_item_name=defect_cols_mode
-    )
+    criteria_main, defect_summary_main = parse_criteria(df_main, defect_columns_right_of_item_name=defect_cols_mode)
     criteria_defect, defect_summary_defect = ([], {})
     if df_defect is not None:
         criteria_defect, defect_summary_defect = parse_criteria(
@@ -860,13 +803,9 @@ def excel_to_json(path: str | Path) -> dict:
         "sheets": {
             "main": SHEET_NAME,
             "defect": SHEET_NAME_DEFECT if df_defect is not None else "",
-            "used_for_criteria": SHEET_NAME
-            if criteria_main
-            else (SHEET_NAME_DEFECT if criteria_defect else ""),
+            "used_for_criteria": SHEET_NAME if criteria_main else (SHEET_NAME_DEFECT if criteria_defect else ""),
             "used_for_defect_summary": (
-                SHEET_NAME
-                if defect_summary_main
-                else (SHEET_NAME_DEFECT if defect_summary_defect else "")
+                SHEET_NAME if defect_summary_main else (SHEET_NAME_DEFECT if defect_summary_defect else "")
             ),
         },
         "metadata": {
@@ -964,9 +903,7 @@ def main() -> None:
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_text(text, encoding="utf-8")
         retrieval_count = len(data.get("retrieval_rows", []))
-        print(
-            f"저장됨: {out_path} (retrieval_rows {retrieval_count}건)", file=sys.stderr
-        )
+        print(f"저장됨: {out_path} (retrieval_rows {retrieval_count}건)", file=sys.stderr)
     else:
         print(text)
 

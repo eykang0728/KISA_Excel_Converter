@@ -29,6 +29,7 @@ def _iter_dict_scalars_no_lists(obj: Any) -> Iterable[Tuple[str, Any]]:
     Used to extract hints from templates like KAIT01 where metadata may be empty,
     but values live under sheets.*.
     """
+
     if isinstance(obj, dict):
         for k, v in obj.items():
             if isinstance(v, list):
@@ -50,7 +51,6 @@ def _find_first_value(obj: Any, keys: Tuple[str, ...]) -> str:
 
 
 def _extract_company(metadata: Dict[str, Any]) -> str:
-    # common variants across templates
     for k in ("기업명", "회사명", "신청기관명", "신청기관", "신청기관명/회사명", "기관명"):
         v = _safe_str(metadata.get(k))
         if v:
@@ -71,7 +71,6 @@ def _extract_company_from_source_file(source_file: str) -> str:
     if not s:
         return ""
 
-    # [회사명] 패턴
     m = re.search(r"\[([^\[\]]+)\]", s)
     if m:
         return m.group(1).strip()
@@ -89,6 +88,7 @@ def build_summary_doc(
     Build minimal summary_doc only.
     Keeps ONLY: template, source_file, company, doc_type, year_hint.
     """
+
     resolved_source_file = source_file or _safe_str(converted.get("source_file"))
     if not isinstance(converted, dict):
         converted_dict = {"value": converted}

@@ -5,3 +5,4 @@ __pycache__/
 .claude
 template/
 result/
+.ci-out/

@@ -21,14 +21,22 @@ from typing import Any, Dict, List
 
 import pandas as pd
 
-DEFAULT_INPUT_PATH = "excel_test_file/template/step1_2024-2025_all/NISC/a25368d35b__정보보호 관리체계 인증 운영명세서.xlsx"
-DEFAULT_OUTPUT_DIR = (
-    "excel_test_file/result_normalized_v3/step1_2024-2025_all/common/error"
+if __package__ in {None, ""}:
+    # Allow running as a script: `python src/step1_common_operating_spec_excel_to_json.py ...`
+    # Ensure repo-root `src/` is importable (e.g., for `summary_doc`).
+    import sys
+
+    repo_root = Path(__file__).resolve().parents[1]
+    sys.path.insert(0, str(repo_root))
+
+DEFAULT_INPUT_PATH = (
+    "excel_test_file/template/step1_2024-2025_all/NISC/a25368d35b__정보보호 관리체계 인증 운영명세서.xlsx"
 )
+DEFAULT_OUTPUT_DIR = "excel_test_file/result_normalized_v3/step1_2024-2025_all/common/error"
 
 SHEET_NAME = "ISMS"
 SUMMARY_TEMPLATE = "COMMON_OPERATING_SPEC"
-MIN_OP_STATUS_FILLED_FOR_SHEET_EXTRACTION = 5 # 앵커(항목코드) 기반: "운영현황" 열에 값이 채워진 셀 개수 기준
+MIN_OP_STATUS_FILLED_FOR_SHEET_EXTRACTION = 5  # 앵커(항목코드) 기반: "운영현황" 열에 값이 채워진 셀 개수 기준
 
 FIELD_CODE_RE = re.compile(r"^\d+\.\d+\.?$")
 ITEM_CODE_RE = re.compile(r"^\d+\.\d+\.\d+\.?$")
@@ -184,9 +192,7 @@ def _extract_company_from_title(title: str) -> str:
         if candidate:
             return candidate
     cleaned = value.lstrip("▣").strip()
-    match = re.search(
-        r"(.+?)\s+(?:정보보호(?:및개인정보보호)?\s*관리체계|ISMS(?:-P)?)", cleaned
-    )
+    match = re.search(r"(.+?)\s+(?:정보보호(?:및개인정보보호)?\s*관리체계|ISMS(?:-P)?)", cleaned)
     if match:
         return match.group(1).strip(" _-()[]")
     return ""
@@ -198,9 +204,7 @@ def _extract_company_from_filename(path: str | Path) -> str:
     bracket_candidates = re.findall(r"\(([^)]+)\)|\[([^\]]+)\]", stem)
     for left, right in bracket_candidates:
         candidate = _clean_text(left or right).strip(" _-()[]")
-        if candidate and not re.search(
-            r"^(별첨|붙임\d*|단일인증|간편인증|ISMS(?:-P)?)$", candidate, re.IGNORECASE
-        ):
+        if candidate and not re.search(r"^(별첨|붙임\d*|단일인증|간편인증|ISMS(?:-P)?)$", candidate, re.IGNORECASE):
             return candidate
 
     normalized = re.sub(r"^\(별첨\)_?", "", stem)
@@ -292,12 +296,7 @@ def _find_layout_from_item_anchor(df: pd.DataFrame) -> dict:
             name = _cell_str(df.iloc[i, j + 1]) if j + 1 < ncols else ""
             if not ITEM_CODE_RE.match(code):
                 continue
-            if (
-                not name
-                or FIELD_CODE_RE.match(name)
-                or ITEM_CODE_RE.match(name)
-                or _is_section_title(name)
-            ):
+            if not name or FIELD_CODE_RE.match(name) or ITEM_CODE_RE.match(name) or _is_section_title(name):
                 continue
             return {
                 "header_row": i - 1,
@@ -334,21 +333,11 @@ def _find_layout_from_kait_numbered_header(df: pd.DataFrame) -> dict:
             "item_code_col": no_positions[1],
             "item_name_col": keys.index("항목"),
             "detail_col": keys.index("점검항목"),
-            "op_flag_col": next(
-                (idx for idx, key in enumerate(keys) if key == "운영여부"), None
-            ),
-            "cert_type_col": next(
-                (idx for idx, key in enumerate(keys) if key == "인증구분"), None
-            ),
-            "status_col": next(
-                (idx for idx, key in enumerate(keys) if key == "운영현황"), None
-            ),
-            "related_docs_col": next(
-                (idx for idx, key in enumerate(keys) if key == "관련문서"), None
-            ),
-            "records_col": next(
-                (idx for idx, key in enumerate(keys) if key == "기록"), None
-            ),
+            "op_flag_col": next((idx for idx, key in enumerate(keys) if key == "운영여부"), None),
+            "cert_type_col": next((idx for idx, key in enumerate(keys) if key == "인증구분"), None),
+            "status_col": next((idx for idx, key in enumerate(keys) if key == "운영현황"), None),
+            "related_docs_col": next((idx for idx, key in enumerate(keys) if key == "관련문서"), None),
+            "records_col": next((idx for idx, key in enumerate(keys) if key == "기록"), None),
         }
 
     return {}
@@ -393,8 +382,7 @@ def _sheet_qualifies_anchor_min_op_status(df: pd.DataFrame) -> bool:
     layout = _infer_layout(df)
     return (
         layout.get("status_col") is not None
-        and _count_non_empty_op_status_cells(df, layout)
-        >= MIN_OP_STATUS_FILLED_FOR_SHEET_EXTRACTION
+        and _count_non_empty_op_status_cells(df, layout) >= MIN_OP_STATUS_FILLED_FOR_SHEET_EXTRACTION
     )
 
 
@@ -487,9 +475,7 @@ def parse_operating_sheet_with_layout_inference(
     if not meta.get("document_title"):
         meta["document_title"] = _find_document_title(df)
     if not meta.get("기업명"):
-        meta["기업명"] = _extract_company_from_title(
-            meta.get("document_title", "")
-        ) or _clean_text(fallback_company)
+        meta["기업명"] = _extract_company_from_title(meta.get("document_title", "")) or _clean_text(fallback_company)
 
     layout = _infer_layout(df)
     if not layout:
@@ -521,28 +507,16 @@ def parse_operating_sheet_with_layout_inference(
     flat_rows: List[Dict[str, Any]] = []
 
     for i in range(data_start, len(df)):
-        field_code_raw = _get_cell_by_layout(
-            df, i, layout.get("field_code_col")
-        ).replace("\n", " ")
-        field_name_raw = _get_cell_by_layout(
-            df, i, layout.get("field_name_col")
-        ).replace("\n", " ")
-        item_code_raw = _get_cell_by_layout(df, i, layout.get("item_code_col")).replace(
-            "\n", " "
-        )
-        item_name_raw = _get_cell_by_layout(df, i, layout.get("item_name_col")).replace(
-            "\n", " "
-        )
+        field_code_raw = _get_cell_by_layout(df, i, layout.get("field_code_col")).replace("\n", " ")
+        field_name_raw = _get_cell_by_layout(df, i, layout.get("field_name_col")).replace("\n", " ")
+        item_code_raw = _get_cell_by_layout(df, i, layout.get("item_code_col")).replace("\n", " ")
+        item_name_raw = _get_cell_by_layout(df, i, layout.get("item_name_col")).replace("\n", " ")
         detail = _get_cell_by_layout(df, i, layout.get("detail_col")).replace("\n", " ")
         oper = _get_cell_by_layout(df, i, layout.get("op_flag_col"))
         cert = _get_cell_by_layout(df, i, layout.get("cert_type_col"))
         status = _get_cell_by_layout(df, i, layout.get("status_col")).replace("\n", " ")
-        docs = _get_cell_by_layout(df, i, layout.get("related_docs_col")).replace(
-            "\n", " "
-        )
-        records = _get_cell_by_layout(df, i, layout.get("records_col")).replace(
-            "\n", " "
-        )
+        docs = _get_cell_by_layout(df, i, layout.get("related_docs_col")).replace("\n", " ")
+        records = _get_cell_by_layout(df, i, layout.get("records_col")).replace("\n", " ")
 
         title_val = _get_cell_by_layout(df, i, title_col).replace("\n", " ")
         if title_val and _is_section_title(title_val):
@@ -626,9 +600,7 @@ def parse_operating_sheet_standard(df: pd.DataFrame) -> Dict[str, Any]:
         return None
 
     idx_field = idx_of(lambda h: h == "분야")
-    idx_field_name = idx_of(
-        lambda h: "분야" in h and ("명" in h or "이름" in h or "설명" in h)
-    )
+    idx_field_name = idx_of(lambda h: "분야" in h and ("명" in h or "이름" in h or "설명" in h))
     idx_item = idx_of(lambda h: h == "항목")
     idx_item_name = idx_of(lambda h: "항목" in h and ("명" in h or "이름" in h))
     idx_detail = idx_of(lambda h: h == "상세내용")
@@ -662,11 +634,7 @@ def parse_operating_sheet_standard(df: pd.DataFrame) -> Dict[str, Any]:
     for i in range(header_row_idx + 1, len(df)):
 
         def g(idx):
-            return (
-                _cell_str(df.iloc[i, idx])
-                if idx is not None and idx < df.shape[1]
-                else ""
-            )
+            return _cell_str(df.iloc[i, idx]) if idx is not None and idx < df.shape[1] else ""
 
         field_raw = g(idx_field)
         if field_raw and _is_section_title(field_raw):
@@ -675,13 +643,7 @@ def parse_operating_sheet_standard(df: pd.DataFrame) -> Dict[str, Any]:
         if idx_field is not None and _is_title_row_standard(df, i, idx_field, ncols):
             continue
         if field_raw and _is_section_title(field_raw):
-            if (
-                not g(idx_item)
-                and not g(idx_detail)
-                and not g(idx_status)
-                and not g(idx_docs)
-                and not g(idx_records)
-            ):
+            if not g(idx_item) and not g(idx_detail) and not g(idx_status) and not g(idx_docs) and not g(idx_records):
                 continue
 
         if field_raw:
@@ -718,26 +680,15 @@ def parse_operating_sheet_standard(df: pd.DataFrame) -> Dict[str, Any]:
         }
         if not any(row.values()):
             continue
-        if (
-            row["분야_code"]
-            and not row["항목_code"]
-            and not row["상세내용"]
-            and not row["운영여부"]
-        ):
+        if row["분야_code"] and not row["항목_code"] and not row["상세내용"] and not row["운영여부"]:
             continue
         flat_rows.append(row)
 
     return {"metadata": meta, "sections": _group_flat_rows(flat_rows)}
 
 
-def _is_title_row_standard(
-    df: pd.DataFrame, row_idx: int, field_col_idx: int, ncols: int
-) -> bool:
-    value = (
-        _cell_str(df.iloc[row_idx, field_col_idx])
-        if field_col_idx < df.shape[1]
-        else ""
-    )
+def _is_title_row_standard(df: pd.DataFrame, row_idx: int, field_col_idx: int, ncols: int) -> bool:
+    value = _cell_str(df.iloc[row_idx, field_col_idx]) if field_col_idx < df.shape[1] else ""
     if not _is_section_title(value):
         return False
     for j in range(min(ncols, df.shape[1])):
@@ -763,9 +714,7 @@ def parse_operating_sheet_item_only(df: pd.DataFrame) -> Dict[str, Any]:
     if header_row_idx is None:
         return {"metadata": meta, "sections": []}
 
-    headers = [
-        _normalize_header_text(df.iloc[header_row_idx, j]) for j in range(df.shape[1])
-    ]
+    headers = [_normalize_header_text(df.iloc[header_row_idx, j]) for j in range(df.shape[1])]
 
     def idx_of(predicate):
         for j, header in enumerate(headers):
@@ -797,9 +746,7 @@ def parse_operating_sheet_item_only(df: pd.DataFrame) -> Dict[str, Any]:
             idx_item_name = idx_item + 1
 
     def g(i: int, idx: int | None) -> str:
-        return (
-            _cell_str(df.iloc[i, idx]) if idx is not None and idx < df.shape[1] else ""
-        )
+        return _cell_str(df.iloc[i, idx]) if idx is not None and idx < df.shape[1] else ""
 
     def split_compact(text: str) -> tuple[str, str]:
         value = _cell_str(text).replace("\n", " ").strip()
@@ -865,12 +812,7 @@ def parse_operating_sheet_item_only(df: pd.DataFrame) -> Dict[str, Any]:
         }
         if not any(row.values()):
             continue
-        if (
-            row["분야_code"]
-            and not row["항목_code"]
-            and not row["상세내용"]
-            and not row["운영여부"]
-        ):
+        if row["분야_code"] and not row["항목_code"] and not row["상세내용"] and not row["운영여부"]:
             continue
         flat_rows.append(row)
 
@@ -883,9 +825,7 @@ def parse_operating_sheet_compact(df: pd.DataFrame) -> Dict[str, Any]:
     header_row_idx = None
     for i in range(min(40, len(df))):
         row_vals = [_cell_str(df.iloc[i, j]) for j in range(df.shape[1])]
-        if any(("분야" in v and "항목" in v) for v in row_vals) and any(
-            v == "상세내용" for v in row_vals
-        ):
+        if any(("분야" in v and "항목" in v) for v in row_vals) and any(v == "상세내용" for v in row_vals):
             header_row_idx = i
             break
     if header_row_idx is None:
@@ -908,9 +848,7 @@ def parse_operating_sheet_compact(df: pd.DataFrame) -> Dict[str, Any]:
     idx_records = idx_of(lambda h: "기록" in h)
 
     def g(i: int, idx: int | None) -> str:
-        return (
-            _cell_str(df.iloc[i, idx]) if idx is not None and idx < df.shape[1] else ""
-        )
+        return _cell_str(df.iloc[i, idx]) if idx is not None and idx < df.shape[1] else ""
 
     def split_compact(value: str) -> tuple[str, str]:
         text = _cell_str(value).replace("\n", " ").strip()
@@ -939,11 +877,7 @@ def parse_operating_sheet_compact(df: pd.DataFrame) -> Dict[str, Any]:
 
         if not any([compact, detail, oper, cert, status, docs, records]):
             continue
-        if (
-            compact
-            and _is_section_title(compact)
-            and not any([detail, status, docs, records])
-        ):
+        if compact and _is_section_title(compact) and not any([detail, status, docs, records]):
             prev_title = compact.replace("\n", " ").strip()
             continue
 
@@ -1024,9 +958,7 @@ def sheet_type(df: pd.DataFrame, name: str) -> str:
 
     for i in range(min(40, len(df))):
         row_vals = [_cell_str(df.iloc[i, j]) for j in range(df.shape[1])]
-        if any(("분야" in v and "항목" in v) for v in row_vals) and any(
-            v == "상세내용" for v in row_vals
-        ):
+        if any(("분야" in v and "항목" in v) for v in row_vals) and any(v == "상세내용" for v in row_vals):
             return "operating_compact"
 
     for i in range(min(30, len(df))):
@@ -1125,9 +1057,7 @@ def build_retrieval_rows(result: Dict[str, Any]) -> List[Dict[str, Any]]:
 
                     text = "\n".join(
                         [
-                            _join_nonempty(
-                                [company, doc_title, sheet_name, section_title]
-                            ),
+                            _join_nonempty([company, doc_title, sheet_name, section_title]),
                             _join_nonempty([field_code, field_name], sep=" "),
                             _join_nonempty([item_code, item_name], sep=" "),
                             _join_nonempty(
@@ -1290,9 +1220,7 @@ def main() -> None:
     if not args.input:
         args.input = [DEFAULT_INPUT_PATH]
         if args.output is None:
-            args.output = str(
-                Path(DEFAULT_OUTPUT_DIR) / f"{Path(DEFAULT_INPUT_PATH).stem}.json"
-            )
+            args.output = str(Path(DEFAULT_OUTPUT_DIR) / f"{Path(DEFAULT_INPUT_PATH).stem}.json")
 
     path = Path(args.input[0])
     if not path.is_file():

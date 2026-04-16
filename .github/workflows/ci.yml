@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.10", "3.11", "3.12"]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          # Keep in sync with your local uv if desired
+          version: "0.10.8"
+          enable-cache: true
+
+      - name: Sync dependencies (locked)
+        run: uv sync --frozen
+
+      - name: Ruff (lint)
+        run: uv run ruff check src tests
+
+      - name: Ruff (format check)
+        run: uv run ruff format --check src tests
+
+      - name: Python syntax check
+        run: uv run python -m compileall -q src
+
+      - name: Entrypoints smoke test
+        run: |
+          uv run step1-batch -h
+          uv run step2-batch -h
+
+      - name: Batch conversion (sample data)
+        run: |
+          mkdir -p .ci-out/step1 .ci-out/step2
+          uv run step1-batch template/step1_2024-2025_small -o .ci-out/step1 --format json --fail-fast
+          uv run step2-batch template/step2_2024-2025_small -o .ci-out/step2 --format json --fail-fast
+
+      - name: Pytest
+        run: uv run pytest
+

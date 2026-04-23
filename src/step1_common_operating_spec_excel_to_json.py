@@ -1055,25 +1055,6 @@ def build_retrieval_rows(result: Dict[str, Any]) -> List[Dict[str, Any]]:
                     ):
                         continue
 
-                    text = "\n".join(
-                        [
-                            _join_nonempty([company, doc_title, sheet_name, section_title]),
-                            _join_nonempty([field_code, field_name], sep=" "),
-                            _join_nonempty([item_code, item_name], sep=" "),
-                            _join_nonempty(
-                                [
-                                    f"운영여부: {oper}" if oper else "",
-                                    f"인증구분: {cert}" if cert else "",
-                                ],
-                                sep=" | ",
-                            ),
-                            f"상세내용: {detail}" if detail else "",
-                            f"운영현황: {status}" if status else "",
-                            f"관련문서: {docs}" if docs else "",
-                            f"기록: {records}" if records else "",
-                        ]
-                    ).strip()
-
                     rows.append(
                         {
                             "kind": "item",

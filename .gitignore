@@ -6,12 +6,12 @@ __pycache__/
 .ci-out/
 .ruff_cache/
 .venv/
-
+*ori.py
 # outputs
 result/
 dist/
 build/
-
+excel_test_file/
 # sample data for CI should be tracked, but large/all-data folders should not
 template/step1_2024-2025_all_data/
 template/step2_2024-2025_all_data/

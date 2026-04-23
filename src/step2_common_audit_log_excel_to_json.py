@@ -30,8 +30,10 @@ if __package__ in {None, ""}:
     repo_root = Path(__file__).resolve().parents[1]
     sys.path.insert(0, str(repo_root))
 
-DEFAULT_INPUT_PATH = "excel_test_file/template/NISC/NISC01.심사일지/((주)마이리얼트립) ISMS-P 심사일지(오광수).xlsx"
+# DEFAULT_INPUT_PATH = "template/step2_2024-2025_all_data/OPA/(계명대학교동산의료원) ISMS-P 심사일지(김중대) copy.xlsx"
+DEFAULT_INPUT_PATH = "template/step2_2024-2025_all_data/NISC/((주)마이리얼트립) ISMS-P 심사일지(오광수).xlsx"
 DEFAULT_OUTPUT_DIR = "excel_test_file/(step2)result_normalized_v2/NISC/NISC01.심사일지"
+
 
 
 SHEET_NAME = "심사일지"
@@ -51,9 +53,16 @@ def _clean_text(text: str) -> str:
     text = _cell_str(text)
     if not text:
         return ""
+    # Excel에서 줄바꿈/캐리지리턴이 _x000d_ 형태로 남는 경우가 있어 제거/정규화한다.
+    # 실제 줄바꿈 의미를 유지하기 위해 \n 으로 치환 후 아래에서 정리한다.
+    text = text.replace("_x000d_", "\n").replace("_x000D_", "\n")
     text = text.replace("\r\n", "\n").replace("\r", "\n")
     text = re.sub(r"[ \t]+", " ", text)
-    text = re.sub(r"\n{3,}", "\n\n", text)
+    # 사용자 요청: 결과 전체에서 개행을 제거한다.
+    # 따라서 \n은 공백으로 치환하고, 연속 공백은 1개로 정리한다.
+    text = re.sub(r"\n{2,}", "\n", text)
+    text = text.replace("\n", " ")
+    text = re.sub(r"[ \t]{2,}", " ", text)
     return text.strip()
 
 
@@ -350,6 +359,47 @@ def _service_name_from_defect_header(raw_header: str) -> str:
     return h
 
 
+def _looks_like_generic_defect_header(text: str) -> bool:
+    """
+    서비스명이 아니라, 테이블/섹션 공통 헤더로 보이는 문구인지 판별.
+    예: "인증서 및 서비스별 결함사항 결함사항", "결함사항", "서비스명" 등
+    """
+    h = _clean_text(text)
+    if not h:
+        return True
+    nl = _normalize_label(h)
+    generic_tokens = [
+        _normalize_label("결함사항"),
+        _normalize_label("결함항목"),
+        _normalize_label("결함여부"),
+        _normalize_label("서비스명"),
+        _normalize_label("항목명"),
+        _normalize_label("인증서및서비스별결함사항"),
+    ]
+    if any(tok and tok in nl for tok in generic_tokens):
+        # "서비스명XXX" 형태는 실제 서비스명일 수 있어 예외 처리
+        svc_prefix = _normalize_label("서비스명")
+        if nl.startswith(svc_prefix) and len(nl) > len(svc_prefix):
+            return False
+        return True
+    return False
+
+
+def _infer_service_name_from_header_stack(df: pd.DataFrame, header_row: int, col_idx: int) -> str:
+    """
+    병합/다단 헤더에서 서비스명이 한 줄 위/두 줄 위에 있는 경우를 보완한다.
+    - header_row 기준으로 위쪽 몇 줄을 스캔하면서 '공통 헤더'가 아닌 값을 서비스명 후보로 채택.
+    """
+    for r in range(header_row - 1, max(-1, header_row - 6), -1):
+        cand = _clean_text(df.iloc[r, col_idx]) if 0 <= r < df.shape[0] and col_idx < df.shape[1] else ""
+        if not cand:
+            continue
+        if _looks_like_generic_defect_header(cand):
+            continue
+        return cand
+    return ""
+
+
 def _make_criteria_record(
     분야: str,
     분야명: str,
@@ -533,6 +583,10 @@ def parse_criteria_flexible(
             break
         raw = header_cells_win[j] if j < len(header_cells_win) else ""
         svc = _service_name_from_defect_header(_cell_str(raw))
+        if _looks_like_generic_defect_header(svc):
+            inferred = _infer_service_name_from_header_stack(df, header_row, j)
+            if inferred:
+                svc = inferred
         if not svc:
             svc = f"열{j + 1}"
         defect_col_specs.append((j, svc))
@@ -582,6 +636,7 @@ def parse_criteria_flexible(
 
         flag = _get(i, flag_col_effective if flag_col_effective is not None else col_flag)
         결함항목 = [_clean_text(_get(i, j)) for j, _svc in defect_col_specs]
+        결함항목_서비스별 = {svc: _clean_text(_get(i, j)) for j, svc in defect_col_specs}
         any_defect_cell = any(_clean_text(t) for t in 결함항목)
 
         if not (domain or item or domain_name or item_name or any_defect_cell or flag):
@@ -602,6 +657,7 @@ def parse_criteria_flexible(
                     결함항목,
                     flag,
                 ),
+                "결함항목_서비스별": 결함항목_서비스별,
             }
         )
 
@@ -652,13 +708,37 @@ def build_retrieval_rows(metadata: dict, criteria_rows: list[dict], defect_summa
 
     doc_title = _clean_text(metadata.get("document_title", ""))
     auditor = _clean_text(metadata.get("심사원명", ""))
+    defect_totals: list[str] = []
+    if isinstance(defect_summary, dict):
+        raw_vals = defect_summary.get("values", [])
+        if isinstance(raw_vals, list):
+            defect_totals = [_clean_text(v) for v in raw_vals if _clean_text(v)]
+
+    def _clean_service_name(val: object) -> str:
+        # 사용자 요청: 서비스명은 줄바꿈을 제거해 한 줄로 맞춘다.
+        return re.sub(r"[ \t]{2,}", " ", _clean_text(val).replace("\n", " ").strip())
+
+    def _clean_one_line(val: object) -> str:
+        # 특정 필드는 줄바꿈을 제거해 한 줄로 맞춘다.
+        return re.sub(r"[ \t]{2,}", " ", _clean_text(val).replace("\n", " ").strip())
+    # 인터뷰 섹션의 '확인문서_또는_시스템'은 결함 테이블의 서비스 컬럼 헤더와 일치하는 경우가 많다.
+    # 결함 레코드의 서비스명을 인터뷰 섹션의 서비스명으로 정규화하기 위한 lookup을 만든다.
+    interview_system_to_service: dict[str, str] = {}
+    for itv in metadata.get("인터뷰", []) or []:
+        if not isinstance(itv, dict):
+            continue
+        sys_key = _clean_text(itv.get("확인문서_또는_시스템", ""))
+        svc_val = _clean_service_name(itv.get("서비스명", ""))
+        if sys_key and svc_val and sys_key not in interview_system_to_service:
+            interview_system_to_service[sys_key] = svc_val
 
     # 1) interview rows
     interviews = metadata.get("인터뷰", [])
+    interview_out_idx = 0
     for idx, item in enumerate(interviews):
-        service_name = _clean_text(item.get("서비스명", ""))
+        service_name = _clean_service_name(item.get("서비스명", ""))
         col_index = item.get("col_index", None)
-        dept = _clean_text(item.get("인터뷰_부서_및_대상", ""))
+        dept = _clean_one_line(item.get("인터뷰_부서_및_대상", ""))
         content = _clean_text(item.get("인터뷰_내용", ""))
         system = _clean_text(item.get("확인문서_또는_시스템", ""))
 
@@ -674,29 +754,19 @@ def build_retrieval_rows(metadata: dict, criteria_rows: list[dict], defect_summa
                 else _join_nonempty([doc_title, SECTION_TITLE_INTERVIEW])
             )
         )
-        text = "\n".join(
-            [
-                prefix,
-                f"서비스명: {service_name}" if service_name else "",
-                f"인터뷰 대상: {dept}" if dept else "",
-                f"인터뷰 내용: {content}" if content else "",
-                f"확인문서 또는 시스템: {system}" if system else "",
-                f"심사원명: {auditor}" if auditor else "",
-            ]
-        ).strip()
-
         rows.append(
             {
-                "kind": "interview",
                 "section": SECTION_TITLE_INTERVIEW,
                 "col_index": int(col_index) if col_index is not None else None,
                 "서비스명": service_name,
                 "인터뷰_부서_및_대상": dept,
                 "인터뷰_내용": content,
                 "확인문서_또는_시스템": system,
-                "text": text,
+                # 결함 합계(요청사항): 결함 합계 행의 값을 서비스(인터뷰) 순서대로 매핑
+                "결함합계": defect_totals[interview_out_idx] if interview_out_idx < len(defect_totals) else "",
             }
         )
+        interview_out_idx += 1
 
     # 2) criteria rows
     for idx, row in enumerate(criteria_rows):
@@ -709,63 +779,77 @@ def build_retrieval_rows(metadata: dict, criteria_rows: list[dict], defect_summa
         item_code = _clean_text(row.get("항목_code", ""))
         item_name = _clean_text(row.get("항목_name", ""))
         defect_flag = _clean_text(row.get("결함여부", ""))
-        결함항목_raw = row.get("결함항목") or []
-        결함항목_out: list[str] = []
-        for d in 결함항목_raw:
-            if isinstance(d, str):
-                결함항목_out.append(_clean_text(d))
-            elif isinstance(d, dict):
-                결함항목_out.append(_clean_text(d.get("내용", "")))
-
-        crit_parts = [
-            _join_nonempty([doc_title, SECTION_TITLE_CRITERIA]),
-            _join_nonempty([field_code, field_name], sep=" "),
-            _join_nonempty([item_code, item_name], sep=" "),
-        ]
-        결함_nonempty = [t for t in 결함항목_out if t]
-        if 결함_nonempty:
-            crit_parts.append("결함항목:\n" + "\n".join(결함_nonempty))
-        if defect_flag:
-            crit_parts.append(f"결함여부: {defect_flag}")
-        text = "\n".join([p for p in crit_parts if p]).strip()
-
-        rows.append(
-            {
-                "kind": "criteria",
-                "section": SECTION_TITLE_CRITERIA,
-                "row_index": int(source_row_index) if source_row_index is not None else None,
-                "분야_code": field_code,
-                "분야_name": field_name,
-                "항목_code": item_code,
-                "항목_name": item_name,
-                "결함항목": 결함항목_out,
-                "결함여부": defect_flag,
-                "text": text,
-            }
+        defect_by_service_raw = (
+            row.get("결함항목_서비스별", {}) if isinstance(row.get("결함항목_서비스별"), dict) else {}
         )
+        defect_by_service = {k: v for k, v in defect_by_service_raw.items() if _clean_text(v)}
+        if (defect_flag == "0" or defect_flag == "") and not defect_by_service:
+            # 요청사항: 결함여부가 "0" 또는 빈값이고, 결함항목_서비스별에 값이 없으면 결과에서 제거
+            continue
+        # 요청사항: 결함항목을 결함항목_서비스별에 뭉치지 않고, 서비스별로 별도 레코드로 분리한다.
+        #          결함여부는 출력에서 제거한다.
+        for service_name_raw, defect_text_raw in defect_by_service.items():
+            service_name_key = _clean_text(service_name_raw)
+            # 인터뷰 섹션의 서비스명과 일치하도록 정규화 (가능하면 치환)
+            service_name = interview_system_to_service.get(service_name_key, service_name_key)
+            service_name = _clean_service_name(service_name)
+            defect_text = _clean_text(defect_text_raw)
+            if not (service_name and defect_text):
+                continue
 
-    # 3) defect summary row
-    if defect_summary:
-        summary_text = "\n".join(
-            [
-                _join_nonempty([doc_title, SECTION_TITLE_DEFECT_SUMMARY]),
-                f"값: {', '.join(defect_summary.get('values', []))}" if defect_summary.get("values") else "",
-                f"원본: {' | '.join(defect_summary.get('raw_cells', []))}" if defect_summary.get("raw_cells") else "",
+            crit_parts = [
+                _join_nonempty([doc_title, SECTION_TITLE_CRITERIA]),
+                _join_nonempty([field_code, field_name], sep=" "),
+                _join_nonempty([item_code, item_name], sep=" "),
+                f"서비스명: {service_name}",
+                "결함항목:\n" + defect_text,
             ]
-        ).strip()
 
-        rows.append(
-            {
-                "kind": "summary",
-                "section": SECTION_TITLE_DEFECT_SUMMARY,
-                "label": defect_summary.get("label", ""),
-                "values": defect_summary.get("values", []),
-                "raw_cells": defect_summary.get("raw_cells", []),
-                "text": summary_text,
-            }
-        )
+            rows.append(
+                {
+                    "section": SECTION_TITLE_CRITERIA,
+                    "row_index": int(source_row_index) if source_row_index is not None else None,
+                    "분야_code": field_code,
+                    "분야_name": field_name,
+                    "항목_code": item_code,
+                    "항목_name": item_name,
+                    "서비스명": service_name,
+                    "결함항목": defect_text,
+                }
+            )
+    # 3) defect summary row
+    # 요청사항: '결함 합계'는 별도 레코드로 출력하지 않고, 인터뷰(서비스) 레코드에 '결함합계'로 포함한다.
 
     return rows
+
+
+def _count_interview_rows(retrieval_rows: list[dict]) -> int:
+    return sum(
+        1
+        for r in (retrieval_rows or [])
+        if isinstance(r, dict) and r.get("section") == SECTION_TITLE_INTERVIEW
+    )
+
+
+def _count_defect_columns(criteria_rows: list[dict]) -> int:
+    """
+    criteria_rows의 '결함항목' 리스트 길이(서비스/결함 컬럼 수)를 추정.
+
+    요청사항의 "리스트안에 값 갯수"를 '비어있는 문자열("")도 하나의 값'으로 해석해,
+    내용 유무가 아니라 리스트의 칸 수(길이)를 기준으로 비교한다.
+
+    구현:
+    - criteria row마다 결함항목 길이가 동일한 경우가 많아, 최댓값을 사용한다.
+    """
+    best = 0
+    for row in criteria_rows or []:
+        if not isinstance(row, dict):
+            continue
+        raw_items = row.get("결함항목") or []
+        if not isinstance(raw_items, list):
+            continue
+        best = max(best, len(raw_items))
+    return best
 
 
 def excel_to_json(path: str | Path) -> dict:
@@ -797,6 +881,11 @@ def excel_to_json(path: str | Path) -> dict:
     criteria = criteria_main or criteria_defect
     defect_summary = defect_summary_main or defect_summary_defect
 
+    retrieval_rows = build_retrieval_rows(metadata, criteria, defect_summary)
+    interview_count = _count_interview_rows(retrieval_rows)
+    defect_col_count = _count_defect_columns(criteria)
+    flag_value = "normal" if interview_count == defect_col_count else "abnormal"
+
     data = {
         "source_file": str(Path(path).name),
         "sheet": SHEET_NAME,
@@ -811,8 +900,9 @@ def excel_to_json(path: str | Path) -> dict:
         "metadata": {
             "document_title": metadata.get("document_title", ""),
             "심사원명": metadata.get("심사원명", ""),
+            "flag": flag_value,
         },
-        "retrieval_rows": build_retrieval_rows(metadata, criteria, defect_summary),
+        "retrieval_rows": retrieval_rows,
     }
     return data
 
@@ -835,13 +925,13 @@ def main() -> None:
         "input",
         nargs="*",
         default=None,
-        help="입력 엑셀 파일 경로 (.xlsx). 미지정 시 기본 경로 사용",
+        help="입력 엑셀 파일 경로 (.xlsx). 미지정 시 DEFAULT_INPUT_PATH(레포 루트 기준)",
     )
     parser.add_argument(
         "-o",
         "--output",
         default=None,
-        help="출력 JSON 파일 경로 (미지정 시 기본 경로 또는 stdout)",
+        help="출력 JSON 파일 경로 (미지정 시 DEFAULT_OUTPUT_DIR 아래, 입력 파일명 기준 .json)",
     )
     parser.add_argument(
         "--format",
@@ -857,10 +947,28 @@ def main() -> None:
     args = parser.parse_args()
 
     if not args.input:
-        args.input = [DEFAULT_INPUT_PATH]
+        repo_root = Path(__file__).resolve().parents[1]
+        default_input = repo_root / DEFAULT_INPUT_PATH
+        if not default_input.is_file():
+            msg = "\n".join(
+                [
+                    "오류: 기본 입력 엑셀 파일을 찾을 수 없습니다.",
+                    f"  기대 경로(레포 루트 기준): {default_input}",
+                    "",
+                    "해결 방법:",
+                    f"- `DEFAULT_INPUT_PATH`(스크립트 상단)를 실제 파일 위치로 바꾸거나,",
+                    f"- 해당 경로에 엑셀을 두거나,",
+                    f"- 인자로 파일 경로를 직접 넘기세요.",
+                    f"  예) python src/step2_common_audit_log_excel_to_json.py \".../파일.xlsx\"",
+                ]
+            )
+            print(msg, file=sys.stderr)
+            sys.exit(2)
+
+        args.input = [str(default_input)]
         if args.output is None:
-            out_name = Path(DEFAULT_INPUT_PATH).stem + ".json"
-            args.output = str(Path(DEFAULT_OUTPUT_DIR) / out_name)
+            out_dir = repo_root / DEFAULT_OUTPUT_DIR
+            args.output = str(out_dir / f"{default_input.stem}.json")
 
     path = Path(args.input[0])
     if not path.is_file():

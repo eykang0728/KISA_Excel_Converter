@@ -1091,7 +1091,7 @@ def build_retrieval_rows(result: Dict[str, Any]) -> List[Dict[str, Any]]:
                             "운영현황": status,
                             "관련문서": docs,
                             "기록": records,
-                            "text": text,
+                            # "text": text,
                         }
                     )
 
